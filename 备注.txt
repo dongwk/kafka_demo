@@ -1,0 +1,62 @@
+# 启动kafka
+bin/kafka-server-start.sh config/server.properties
+# 创建主题
+bin/kafka-topics.sh --create --topic quickstart-events --bootstrap-server 10.10.23.139:9092
+# 显示使用信息
+bin/kafka-topics.sh --describe --topic quickstart-events --bootstrap-server 10.10.23.139:9092
+# 运行控制台生产者客户端
+bin/kafka-console-producer.sh --topic quickstart-events --bootstrap-server 10.10.23.139:9092
+# 运行控制台消费者客户端
+bin/kafka-console-consumer.sh --topic quickstart-events --from-beginning --bootstrap-server 10.10.23.139:9092
+# Kafka Connect 将数据从外部系统摄取到Kafka中
+# 将connect-file-4.0.0.jar添加到Connect Worker配置中的plugin.path属性
+echo "plugin.path=libs/connect-file-4.0.0.jar" >> config/connect-standalone.properties
+# 控制台消费者来查看主题中的数据
+bin/kafka-console-consumer.sh --bootstrap-server 10.10.23.139:9092 --topic connect-test --from-beginning
+# 查看所有主题
+bin/kafka-topics.sh --bootstrap-server 10.10.23.139:9092 --list
+# 查看所有组
+bin/kafka-consumer-groups.sh --bootstrap-server 10.10.23.139:9092 --list 
+# 查看消费组的具体描述信息
+bin/kafka-consumer-groups.sh --bootstrap-server 10.10.23.139:9092 --describe --group console-consumer-79398
+```
+消费者组               话题id            分区id     当前已消费的条数 总条数    		未消费的条数    消费者ID
+GROUP                  TOPIC             PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                           HOST            CLIENT-ID
+console-consumer-79398 quickstart-events 0          -               9               -               console-consumer-3bc969ca-7678-403e-8a21-c66e0cc82d3c /127.0.0.1      console-consumer
+```
+
+
+原疑问：
+```
+提一个疑问，在高并发情况下，在调用 mq之前需要入库吗(我没啥高并发的经验，还是比较信任 mq
+的)。我的疑问是，既然已经是高并发了，入库算是一个比较耗时的i0操作了，入库虽然保证了数据的安全性
+但也降低了高并发。如果把去掉入库操作，换成 mq的同步刷盘(或者异步刷盘)，两者对比会怎么样呢
+```
+
+原疑问总结：
+```
+在高并发场景下，调用 MQ 之前是否入库以及与 MQ 刷盘机制对比，需要综合多方面考量：
+```
+
+解答
+```
+调用 MQ 前入库的利弊
+优点
+数据安全可靠：入库操作将数据持久化到数据库，即便 MQ 出现故障（如崩溃、消息丢失 ），数据仍能从数据库恢复，保证数据完整性和一致性。比如电商下单场景，订单数据入库后，后续可准确进行库存扣减、订单处理等操作。
+事务支持：数据库通常支持事务，能保证相关操作原子性。例如银行转账，可在一个事务内完成扣款和入账，再发送 MQ 消息通知相关系统，避免资金不一致问题。
+缺点
+性能瓶颈：数据库 I/O 操作相对耗时，高并发时大量入库请求易造成数据库负载过高，成为系统性能瓶颈，导致响应时间变长，吞吐量下降。
+影响并发处理速度：入库操作增加处理链路耗时，限制系统并发处理能力，无法快速响应大量请求。
+MQ 同步刷盘与异步刷盘
+同步刷盘
+原理：消息写入 Broker 的内存缓冲区后，会等待数据真正持久化到磁盘，得到刷盘成功的确认信号（ACK ）后，才向生产者返回成功响应。
+优点：能最大程度保证消息可靠性，即使 Broker 意外宕机，已确认发送成功的消息也不会丢失，适用于对数据可靠性要求极高场景，如金融交易。
+缺点：等待磁盘 I/O 完成的过程增加了消息发送延迟，降低了系统吞吐量，影响高并发处理能力。
+异步刷盘
+原理：消息写入 Broker 内存缓冲区后，无需等待刷盘完成，直接向生产者返回成功响应。之后，Broker 通过后台异步线程按照一定频率（如达到设定时间间隔或缓冲区数据量阈值 ）将消息刷入磁盘。
+优点：减少消息发送等待时间，提高系统吞吐量和响应速度，适合对消息实时性要求较高、允许少量消息丢失的场景，如发送营销短信、验证码 。
+缺点：在 Broker 宕机且内存中未刷盘消息未持久化时，可能丢失部分消息。
+综合对比与选择建议
+业务场景考量：若业务要求数据强一致性和高可靠性，如金融、核心交易系统，调用 MQ 前入库结合 MQ 同步刷盘更合适；若业务对实时性要求高，允许一定程度数据丢失，如非关键通知、日志收集，可考虑不入库，采用 MQ 异步刷盘提高并发处理能力。
+结合使用：也可采用折衷方案，部分关键数据入库，非关键数据通过 MQ 快速处理，同时根据业务对消息可靠性要求，合理配置 MQ 刷盘策略，兼顾数据安全和并发性能。
+```
