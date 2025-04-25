@@ -24,7 +24,8 @@ bin/kafka-consumer-groups.sh --bootstrap-server 10.10.23.139:9092 --describe --g
 GROUP                  TOPIC             PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                           HOST            CLIENT-ID
 console-consumer-79398 quickstart-events 0          -               9               -               console-consumer-3bc969ca-7678-403e-8a21-c66e0cc82d3c /127.0.0.1      console-consumer
 ```
-
+# 顺序消费
+需要指定消息key，保证在同一个partition（分区），Kafka对其进行Hash计算，根据计算结果决定放入哪个Partition。这样Partition Key相同的消息会放在同一个Partition。
 
 原疑问：
 ```
@@ -60,3 +61,9 @@ MQ 同步刷盘与异步刷盘
 业务场景考量：若业务要求数据强一致性和高可靠性，如金融、核心交易系统，调用 MQ 前入库结合 MQ 同步刷盘更合适；若业务对实时性要求高，允许一定程度数据丢失，如非关键通知、日志收集，可考虑不入库，采用 MQ 异步刷盘提高并发处理能力。
 结合使用：也可采用折衷方案，部分关键数据入库，非关键数据通过 MQ 快速处理，同时根据业务对消息可靠性要求，合理配置 MQ 刷盘策略，兼顾数据安全和并发性能。
 ```
+
+# 知识点
+- 一个消费组多个消费者订阅同一个topic只会消费一次消息
+- 多个消费组多个消费者订阅同一个topic会消费多次消息
+- 不同消费组可以同时消费同一个topic的同一条消息
+- 不同消费组可以理解为广播
